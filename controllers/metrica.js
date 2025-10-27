@@ -1,0 +1,109 @@
+import moment from "moment-timezone";
+import getClient from "../db/mongo.js";
+
+export const registrarMetrica = async (data) => {
+  const client = await getClient();
+  const fechaHoy = moment().tz("America/Bogota").format("YYYY-MM-DD");
+
+  const {
+    duracionRespuesta = 0,
+    falloIntencion = false,
+    feedback = "",
+  } = data;
+
+  try {
+    const coleccion = client.db("MediBot").collection("metricas_chatbot");
+
+    // Verificar si ya hay registro del día
+    const registroExistente = await coleccion.findOne({ fecha: fechaHoy });
+
+    if (registroExistente) {
+      // Actualizar métricas acumuladas del día
+      const totalConsultas = registroExistente.total_consultas + 1;
+      const nuevoPromedio =
+        (registroExistente.promedio_respuesta_ms * registroExistente.total_consultas +
+          duracionRespuesta) /
+        totalConsultas;
+
+      await coleccion.updateOne(
+        { fecha: fechaHoy },
+        {
+          $set: { promedio_respuesta_ms: nuevoPromedio },
+          $inc: {
+            total_consultas: 1,
+            fallos_intencion: falloIntencion ? 1 : 0,
+          },
+          $push: {
+            feedback_usuarios: feedback ? feedback : null,
+          },
+        }
+      );
+    } else {
+      // Crear nuevo registro del día
+      await coleccion.insertOne({
+        fecha: fechaHoy,
+        total_consultas: 1,
+        promedio_respuesta_ms: duracionRespuesta,
+        porcentaje_satisfaccion: 0,
+        fallos_intencion: falloIntencion ? 1 : 0,
+        feedback_usuarios: feedback ? [feedback] : [],
+      });
+    }
+  } catch (error) {
+    console.error("❌ Error registrando métricas:", error);
+  }
+};
+
+export const actualizarFeedback = async (req, res) => {
+  const client = await getClient();
+  const { feedback, satisfaccion } = req.body;
+
+  if (!feedback || feedback.trim() === "") {
+    return res.status(400).json({ status: "Error", message: "El feedback es obligatorio" });
+  }
+
+  if (satisfaccion === undefined || isNaN(satisfaccion) || satisfaccion < 1 || satisfaccion > 5) {
+    return res.status(400).json({ status: "Error", message: "La calificación de satisfacción debe estar entre 1 y 5" });
+  }
+
+  const fechaRegistro = moment().tz("America/Bogota").format("YYYY-MM-DD");
+
+  try {
+    const coleccion = client.db("MediBot").collection("metricas_chatbot");
+
+    // Obtener el registro existente del día
+    const registro = await coleccion.findOne({ fecha: fechaRegistro });
+    if (!registro) {
+      return res.status(404).json({
+        status: "Error",
+        message: `No se encontró registro de métricas para la fecha ${fechaRegistro}`,
+      });
+    }
+
+    // Calcular nuevo porcentaje de satisfacción promedio
+    const totalRespuestas = registro.total_respuestas_satisfaccion || 0;
+    const promedioAnterior = registro.porcentaje_satisfaccion || 0;
+    const nuevoPromedio =
+      (promedioAnterior * totalRespuestas + satisfaccion) / (totalRespuestas + 1);
+
+    // Actualizar el registro
+    await coleccion.updateOne(
+      { fecha: fechaRegistro },
+      {
+        $push: { feedback_usuarios: feedback },
+        $set: { porcentaje_satisfaccion: nuevoPromedio },
+        $inc: { total_respuestas_satisfaccion: 1 },
+      }
+    );
+
+    res.json({
+      status: "OK",
+      message: "✅ Feedback y satisfacción actualizados correctamente",
+      fecha: fechaRegistro,
+      porcentaje_satisfaccion: nuevoPromedio,
+    });
+  } catch (error) {
+    console.error("❌ Error actualizando feedback:", error);
+    res.status(500).json({ status: "Error", message: "Error interno del servidor" });
+  }
+};
