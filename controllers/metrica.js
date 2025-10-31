@@ -107,3 +107,55 @@ export const actualizarFeedback = async (req, res) => {
     res.status(500).json({ status: "Error", message: "Error interno del servidor" });
   }
 };
+
+export const getMetricas = async (req, res) => {
+  const client = await getClient();
+  const coleccion = client.db("MediBot").collection("metricas_chatbot");
+
+  try {
+    const { fecha, desde, hasta } = req.query;
+
+    let filtro = {};
+
+    // Buscar por una fecha exacta (ej: ?fecha=2025-10-30)
+    if (fecha) {
+      filtro.fecha = fecha;
+    }
+
+    // Buscar por rango de fechas (ej: ?desde=2025-10-01&hasta=2025-10-30)
+    if (desde && hasta) {
+      filtro.fecha = { $gte: desde, $lte: hasta };
+    }
+
+    const metricas = await coleccion.find(filtro).sort({ fecha: -1 }).toArray();
+
+    if (metricas.length === 0) {
+      return res.status(404).json({
+        status: "Error",
+        message: "No se encontraron métricas para el criterio dado",
+      });
+    }
+
+    // Calcular métricas globales (útil para dashboard)
+    const resumen = {
+      total_consultas: metricas.reduce((acc, m) => acc + (m.total_consultas || 0), 0),
+      promedio_respuesta_ms:
+        metricas.reduce((acc, m) => acc + (m.promedio_respuesta_ms || 0), 0) / metricas.length,
+      fallos_intencion: metricas.reduce((acc, m) => acc + (m.fallos_intencion || 0), 0),
+      porcentaje_satisfaccion:
+        metricas.reduce((acc, m) => acc + (m.porcentaje_satisfaccion || 0), 0) / metricas.length,
+      total_dias: metricas.length,
+    };
+
+    res.json({
+      status: "OK",
+      fecha_consulta: moment().tz("America/Bogota").format("YYYY-MM-DD HH:mm:ss"),
+      filtro_usado: filtro,
+      resumen,
+      datos: metricas,
+    });
+  } catch (error) {
+    console.error("❌ Error obteniendo métricas:", error);
+    res.status(500).json({ status: "Error", message: "Error interno del servidor" });
+  }
+};
