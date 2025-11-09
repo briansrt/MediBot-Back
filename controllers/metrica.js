@@ -159,3 +159,54 @@ export const getMetricas = async (req, res) => {
     res.status(500).json({ status: "Error", message: "Error interno del servidor" });
   }
 };
+
+export const getDoloresFrecuentes = async (req, res) => {
+  const client = await getClient();
+  try {
+    const coleccion = client.db("MediBot").collection("session");
+
+    const resultado = await coleccion.aggregate([
+      { $match: { dolor: { $exists: true, $ne: "" } } },
+      { $group: { _id: "$dolor", total: { $sum: 1 } } },
+      { $sort: { total: -1 } },
+      { $limit: 10 } // los 10 dolores más comunes
+    ]).toArray();
+
+    res.json({
+      status: "OK",
+      total_dolores_distintos: resultado.length,
+      dolores_mas_frecuentes: resultado.map(d => ({
+        dolor: d._id,
+        veces_reportado: d.total
+      }))
+    });
+  } catch (error) {
+    console.error("❌ Error obteniendo dolores frecuentes:", error);
+    res.status(500).json({ status: "Error", message: "Error interno del servidor" });
+  }
+};
+
+export const getMedicamentosMasBuscados = async (req, res) => {
+  const client = await getClient();
+  try {
+    const coleccion = client.db("MediBot").collection("busquedas_medicamentos");
+
+    const resultado = await coleccion.aggregate([
+      { $match: { encontrado: true } },
+      { $group: { _id: "$nombre_encontrado", total_busquedas: { $sum: 1 } } },
+      { $sort: { total_busquedas: -1 } },
+      { $limit: 10 } // top 10 más buscados
+    ]).toArray();
+
+    res.json({
+      status: "OK",
+      top_medicamentos: resultado.map(m => ({
+        medicamento: m._id,
+        veces_buscado: m.total_busquedas
+      }))
+    });
+  } catch (error) {
+    console.error("❌ Error obteniendo medicamentos más buscados:", error);
+    res.status(500).json({ status: "Error", message: "Error interno del servidor" });
+  }
+};

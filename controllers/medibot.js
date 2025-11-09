@@ -71,6 +71,13 @@ export const medicamento = async (req, res) => {
       return res.json({ status: "OK", message: "No se encontró el medicamento", data: null });
     }
 
+    await client.db("MediBot").collection("busquedas_medicamentos").insertOne({
+      nombre_busqueda: nombre,
+      encontrado: !!medicamento,
+      nombre_encontrado: medicamento ? (medicamento.nombre_comercial || medicamento.nombre_generico) : null,
+      fecha: moment().tz("America/Bogota").format("YYYY-MM-DD HH:mm:ss"),
+    });
+
     res.json({ status: "OK", data: medicamento });
   } catch (error) {
     console.error("❌ Error obteniendo detalles del medicamento:", error);
