@@ -26,6 +26,15 @@ export const getUsoComun = async (req, res) => {
         })
         .toArray();
 
+         await client.db("MediBot").collection("busquedas_uso_comun").insertOne({
+            uso_buscado: uso_comun.trim().toLowerCase(),
+            resultados: medicamentos.length,
+            medicamentos_encontrados: medicamentos.map(
+              m => m.nombre_comercial || m.nombre_generico
+            ),
+            fecha: moment().tz("America/Bogota").format("YYYY-MM-DD HH:mm:ss")
+         });
+
         if (medicamentos.length === 0) {
         return res.json({ status: "OK", message: "No se encontraron medicamentos", data: [] });
         }
@@ -70,13 +79,6 @@ export const medicamento = async (req, res) => {
     if (!medicamento) {
       return res.json({ status: "OK", message: "No se encontró el medicamento", data: null });
     }
-
-    await client.db("MediBot").collection("busquedas_medicamentos").insertOne({
-      nombre_busqueda: nombre,
-      encontrado: !!medicamento,
-      nombre_encontrado: medicamento ? (medicamento.nombre_comercial || medicamento.nombre_generico) : null,
-      fecha: moment().tz("America/Bogota").format("YYYY-MM-DD HH:mm:ss"),
-    });
 
     res.json({ status: "OK", data: medicamento });
   } catch (error) {

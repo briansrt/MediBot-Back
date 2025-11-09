@@ -188,25 +188,35 @@ export const getDoloresFrecuentes = async (req, res) => {
 
 export const getMedicamentosMasBuscados = async (req, res) => {
   const client = await getClient();
-  try {
-    const coleccion = client.db("MediBot").collection("busquedas_medicamentos");
 
-    const resultado = await coleccion.aggregate([
-      { $match: { encontrado: true } },
-      { $group: { _id: "$nombre_encontrado", total_busquedas: { $sum: 1 } } },
-      { $sort: { total_busquedas: -1 } },
-      { $limit: 10 } // top 10 más buscados
-    ]).toArray();
+  try {
+    const resultado = await client.db("MediBot").collection("busquedas_uso_comun")
+      .aggregate([
+        { $unwind: "$medicamentos_encontrados" },
+        {
+          $group: {
+            _id: "$medicamentos_encontrados",
+            total_recomendaciones: { $sum: 1 },
+          },
+        },
+        { $sort: { total_recomendaciones: -1 } },
+        { $limit: 10 },
+      ])
+      .toArray();
 
     res.json({
       status: "OK",
-      top_medicamentos: resultado.map(m => ({
+      medicamentos_mas_recomendados: resultado.map((m) => ({
         medicamento: m._id,
-        veces_buscado: m.total_busquedas
-      }))
+        veces_recomendado: m.total_recomendaciones,
+      })),
     });
   } catch (error) {
-    console.error("❌ Error obteniendo medicamentos más buscados:", error);
-    res.status(500).json({ status: "Error", message: "Error interno del servidor" });
+    console.error("❌ Error obteniendo medicamentos recomendados:", error);
+    res.status(500).json({
+      status: "Error",
+      message: "Error interno del servidor",
+    });
   }
 };
+
