@@ -1,4 +1,5 @@
 import moment from "moment-timezone";
+import PDFDocument from "pdfkit";
 import getClient from "../db/mongo.js";
 
 export const registrarMetrica = async (data) => {
@@ -220,3 +221,89 @@ export const getMedicamentosMasBuscados = async (req, res) => {
   }
 };
 
+export const exportarMetricasPDF = async (req, res) => {
+    const client = await getClient();
+    const db = client.db("MediBot");
+
+    try {
+        // Obtener métricas globales
+        const metricas = await db.collection("metricas_chatbot")
+            .find({})
+            .sort({ fecha: -1 })
+            .toArray();
+
+        const dolores = await db.collection("session")
+            .aggregate([
+                { $match: { dolor: { $exists: true, $ne: "" } } },
+                { $group: { _id: "$dolor", total: { $sum: 1 } } },
+                { $sort: { total: -1 } },
+                { $limit: 10 }
+            ])
+            .toArray();
+
+        const medicamentos = await db.collection("busquedas_uso_comun")
+            .aggregate([
+                { $unwind: "$medicamentos_encontrados" },
+                { $group: { _id: "$medicamentos_encontrados", total: { $sum: 1 } } },
+                { $sort: { total: -1 } },
+                { $limit: 10 }
+            ])
+            .toArray();
+
+        // Crear documento PDF
+        const doc = new PDFDocument({ margin: 40 });
+
+        const fechaReporte = moment().tz("America/Bogota").format("YYYY-MM-DD_HH-mm");
+        const fileName = `Reporte_Metricas_${fechaReporte}.pdf`;
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+
+        doc.pipe(res);
+
+        // Título
+        doc.fontSize(20).text("Reporte de Métricas del Chatbot", { align: "center" });
+        doc.moveDown();
+        doc.fontSize(12).text(`Fecha de generación: ${moment().tz("America/Bogota").format("YYYY-MM-DD HH:mm:ss")}`);
+        doc.moveDown(2);
+
+        // Resumen global
+        doc.fontSize(16).text("Resumen Global", { underline: true });
+        doc.moveDown();
+
+        const totalConsultas = metricas.reduce((acc, m) => acc + (m.total_consultas || 0), 0);
+        const promedioRespuesta = metricas.reduce((acc, m) => acc + (m.promedio_respuesta_ms || 0), 0) / (metricas.length || 1);
+        const fallos = metricas.reduce((acc, m) => acc + (m.fallos_intencion || 0), 0);
+        const satisfaccion = metricas.reduce((acc, m) => acc + (m.porcentaje_satisfaccion || 0), 0) / (metricas.length || 1);
+
+        doc.fontSize(12)
+            .text(`• Total de consultas: ${totalConsultas}`)
+            .text(`• Tiempo promedio de respuesta: ${promedioRespuesta.toFixed(2)} ms`)
+            .text(`• Fallos de intención: ${fallos}`)
+            .text(`• Satisfacción promedio: ${satisfaccion.toFixed(2)} / 5`);
+        doc.moveDown(2);
+
+        // Dolores más frecuentes
+        doc.fontSize(16).text("Dolores Más Frecuentes", { underline: true });
+        doc.moveDown();
+
+        dolores.forEach(d => {
+            doc.fontSize(12).text(`• ${d._id}: ${d.total} veces`);
+        });
+        doc.moveDown(2);
+
+        // Medicamentos más buscados
+        doc.fontSize(16).text("Medicamentos Más Buscados", { underline: true });
+        doc.moveDown();
+
+        medicamentos.forEach(m => {
+            doc.fontSize(12).text(`• ${m._id}: ${m.total} búsquedas`);
+        });
+
+        doc.end();
+
+    } catch (error) {
+        console.error("❌ Error generando PDF:", error);
+        res.status(500).json({ status: "Error", message: "No se pudo generar el PDF" });
+    }
+};
